@@ -1,50 +1,203 @@
-# SIPcity Developer Documentation
+# Qwen TTS Wrapper
 
-**API & Webhooks Integration Guide**
+OpenAI-compatible API wrapper for Qwen-TTS with voice cloning support, designed for LiveKit integration.
 
-> Version 2 · June 2026
+## Features
 
-This repository contains the official developer documentation for the SIPcity platform API and webhook services.
+- ✅ OpenAI-compatible `/v1/audio/speech` endpoint
+- ✅ Voice cloning via `/v1/audio/voice-clone`
+- ✅ STT wrapper via `/v1/audio/transcriptions`
+- ✅ Persistent voice storage
+- ✅ Docker support
 
-## What you can do
+## Quick Start
 
-- Receive real-time webhook notifications when a call completes, including metadata, transcription, and sentiment analysis
-- Download call recordings programmatically via the CDR API
-- Transcribe calls automatically with speaker diarisation, sentiment analysis, and AI-generated summaries — processed entirely on SIPcity's private infrastructure
-- Send bulk SMS messages to multiple destinations in a single request
-- Manage SMS webhook subscriptions to receive delivery status and inbound message notifications
-- Validate incoming webhook requests using HMAC signature verification
-- Connect any service to HubSpot, Salesforce, or any other platform using Zapier or N8N
+### Docker Compose
 
-## Base URLs
+```bash
+# Copy environment example
+cp .env.example .env
 
-| Service | Base URL |
-|---------|----------|
-| CDR API | https://arena.yourcloudtelco.com.au |
-| SMS API | https://sms.sipcity.com.au |
+# Edit .env with your backend URLs
+# VOICE_CLONE_URL=http://your-qwen-tts:8889/v1/audio/voice-clone
+# WHISPER_URL=http://your-whisper:8001/v1/audio/transcriptions
 
-## Documentation
+# Start the wrapper + Gradio UI
+docker-compose up -d
 
-| Section | Description |
-|---------|-------------|
-| [Getting Started](docs/getting-started.md) | Create API keys, register webhooks, verify your setup |
-| [Authentication](docs/authentication.md) | Headers, Base64 encoding, credential security |
-| [CDR API & Webhooks](docs/cdr-api.md) | Call detail records, webhook payloads, recording download |
-| [Transcription](docs/transcription.md) | Speaker diarisation, sentiment analysis, AI summaries |
-| [SMS API](docs/sms-api.md) | Bulk messaging, webhook subscription management |
-| [SMS Webhooks](docs/sms-webhooks.md) | HMAC validation, event payloads, error codes |
-| [Zapier & N8N](docs/zapier-n8n.md) | No-code automation, HubSpot and Salesforce integration |
+# Check logs
+docker-compose logs -f
 
-## Examples
+# Access:
+# - API: http://localhost:8880
+# - Gradio UI: http://localhost:7860
+```
 
-| File | Description |
-|------|-------------|
-| [examples/test_sms_auth.py](examples/test_sms_auth.py) | Python script to test all four SMS API authentication methods |
+### Manual
 
-## Changelog
+```bash
+pip install fastapi uvicorn httpx python-multipart pydantic gradio
+python3 app.py
+```
 
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+### Gradio UI
 
----
+```bash
+# Start only Gradio (API must be running)
+python3 gradio_app.py
 
-> **Your API Secret is only shown once.** When you create an API key, the secret is displayed only at that moment. Download your credentials immediately and store them securely. If you lose it, you will need to create a new key.
+# Access: http://localhost:7860
+```
+
+## Gradio Interface Features
+
+The web interface provides:
+
+1. **🔊 Clone Voice** - Upload audio samples and create cloned voices
+2. **📝 Generate Speech** - Convert text to speech using cloned voices
+3. **📋 Manage Voices** - View, test, and delete cloned voices
+4. **⚙️ Settings** - View configuration and connection status
+
+## API Endpoints
+
+### 1. Create Custom Voice
+
+Clone a voice from an audio sample (WAV, MP3, etc.)
+
+```bash
+curl -X POST http://localhost:8880/v1/audio/voice-clone \
+  -F "voice_name=myvoice" \
+  -F "file=@sample.wav"
+```
+
+Response:
+```json
+{
+  "status": "success",
+  "voice_name": "myvoice",
+  "reference_file": "voices/myvoice_reference.wav"
+}
+```
+
+### 2. Text-to-Speech (with cloned voice)
+
+```bash
+curl -X POST http://localhost:8880/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Hello, this is my cloned voice!", "voice_name": "myvoice"}' \
+  --output output.wav
+```
+
+### 3. Speech-to-Text
+
+```bash
+curl -X POST http://localhost:8880/v1/audio/transcriptions \
+  -F "file=@audio.wav" \
+  -F "language=en"
+```
+
+## LiveKit Integration
+
+### LiveKit Agents Setup
+
+In your LiveKit agent, configure the TTS client to use the wrapper:
+
+```python
+from livekit.agents import tts
+import httpx
+
+# Configure OpenAI-compatible client
+tts_client = tts.OpenAITTS(
+    base_url="http://qwen-tts-wrapper:8880/v1",
+    api_key="not-needed",  # Not required
+    model="qwen3-tts"
+)
+
+# Use a cloned voice
+voice = tts.OpenAIVoice(id="myvoice")
+
+# Generate speech
+async for chunk in tts_client.synthesize(
+    text="Hello from LiveKit with cloned voice!",
+    voice=voice
+):
+    # Process audio chunks
+    pass
+```
+
+### LiveKit Server Configuration
+
+Add to your `livekit.yaml` or environment:
+
+```yaml
+# Or via environment variables
+LIVEKIT_TTS_BASE_URL: http://qwen-tts-wrapper:8880/v1
+LIVEKIT_TTS_API_KEY: not-needed
+LIVEKIT_TTS_MODEL: qwen3-tts
+```
+
+### Using Custom Voices in LiveKit
+
+1. **Clone the voice first:**
+```bash
+curl -X POST http://qwen-tts-wrapper:8880/v1/audio/voice-clone \
+  -F "voice_name=agent_voice" \
+  -F "file=@/path/to/voice_sample.wav"
+```
+
+2. **Use in your agent:**
+```python
+from livekit.plugins import openai
+
+tts = openai.TTS(
+    base_url="http://qwen-tts-wrapper:8880/v1",
+    voice="agent_voice"  # Use cloned voice name
+)
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VOICE_CLONE_URL` | `http://10.224.0.190:8889/v1/audio/voice-clone` | Qwen-TTS voice clone endpoint |
+| `WHISPER_URL` | `http://10.224.0.190:8001/v1/audio/transcriptions` | Whisper STT endpoint |
+| `TTS_URL` | `http://10.224.0.190:8889/v1/audio/speech` | Qwen-TTS standard synthesis |
+| `FIXED_REFERENCE_TEXT` | `Hello, this is a standard reference voice sample.` | Reference text for voice cloning |
+
+## Testing
+
+### Latency Test
+
+```bash
+# Run 10 latency tests
+./latency_test.sh
+
+# Custom configuration
+VOICE_NAME=myvoice RUNS=20 ./latency_test.sh
+```
+
+### Full Benchmark
+
+```bash
+# TTS only (5 runs)
+RUNS=5 MODE=tts-only ./benchmark_pipeline-nocache.sh
+
+# Full pipeline (LLM + TTS + STT)
+RUNS=100 MODE=full ./benchmark_pipeline-nocache.sh
+```
+
+## Directory Structure
+
+```
+qwen-tts-wrapper/
+├── app.py                 # Main wrapper application
+├── docker-compose.yml     # Docker Compose configuration
+├── Dockerfile            # Docker image
+├── .env.example          # Environment variables template
+├── voices/               # Cloned voice storage
+│   ├── {name}_reference.wav
+│   └── {name}_transcript.txt
+├── latency_test.sh       # Latency testing script
+└── benchmark_pipeline-nocache.sh  # Full benchmark
+```
+
